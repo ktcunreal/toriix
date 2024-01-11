@@ -3,10 +3,10 @@ package smux
 import (
 	"container/heap"
 	"errors"
+	"golang.org/x/crypto/nacl/secretbox"
 	"io"
 	"net"
 	"sync"
-	"golang.org/x/crypto/nacl/secretbox"
 	"sync/atomic"
 	"time"
 )
@@ -46,10 +46,10 @@ type writeResult struct {
 	err error
 }
 
-/// Session defines a multiplexed connection for streams
+// / Session defines a multiplexed connection for streams
 type Session struct {
 	conn io.ReadWriteCloser
-	
+
 	config           *Config
 	nextStreamID     uint32 // next stream identifier
 	nextStreamIDLock sync.Mutex
@@ -88,10 +88,10 @@ type Session struct {
 	shaper    chan writeRequest // a shaper for writing
 	writes    chan writeRequest
 
-	isClient	bool
+	isClient                               bool
 	ServerSN, ServerRN, ClientSN, ClientRN [24]byte
-	NaclKey [32]byte
-	keyring  *Keyring
+	NaclKey                                [32]byte
+	keyring                                *Keyring
 }
 
 func newSession(config *Config, conn io.ReadWriteCloser, client bool, key string) *Session {
@@ -332,7 +332,7 @@ func (s *Session) recvLoop() {
 	var updHdr updHeader
 	// var ehdr encryptedHeader
 	ehdr := NewEncryptedHeader(s.keyring)
-	
+
 	for {
 		for atomic.LoadInt32(&s.bucket) <= 0 && !s.IsClosed() {
 			select {
@@ -345,7 +345,7 @@ func (s *Session) recvLoop() {
 		// read header first
 		if _, err := io.ReadFull(s.conn, ehdr.eb[:]); err == nil {
 			atomic.StoreInt32(&s.dataReady, 1)
-			ehdr.Unmask()
+			ehdr.Mask()
 			// Get sid
 			sid := ehdr.StreamID()
 
@@ -370,7 +370,7 @@ func (s *Session) recvLoop() {
 				}
 				s.streamLock.Unlock()
 			case cmdPSH:
-				if ehdr.Length() > 0 {	
+				if ehdr.Length() > 0 {
 					ebuf := defaultAllocator.Get(int(ehdr.Length()))
 					if written, err := io.ReadFull(s.conn, ebuf); err == nil {
 						var plain []byte
@@ -381,7 +381,7 @@ func (s *Session) recvLoop() {
 							if !ok {
 								s.notifyReadError(ErrDecryptFailed)
 								break
-							} 
+							}
 							increment(&s.ClientRN)
 						} else {
 							plain, ok = secretbox.Open(nil, ebuf[:], &s.ServerRN, &s.NaclKey)
@@ -389,7 +389,7 @@ func (s *Session) recvLoop() {
 								s.notifyReadError(ErrDecryptFailed)
 								break
 							}
-							increment(&s.ServerRN)	
+							increment(&s.ServerRN)
 						}
 
 						s.streamLock.Lock()
@@ -399,7 +399,7 @@ func (s *Session) recvLoop() {
 							stream.notifyReadEvent()
 						}
 						s.streamLock.Unlock()
-						
+
 					} else {
 						s.notifyReadError(err)
 						return
@@ -504,7 +504,7 @@ func (s *Session) sendLoop() {
 		case request := <-s.writes:
 			// Process payload by cmd
 			if request.frame.cmd == 2 {
-				var cipher []byte			
+				var cipher []byte
 				// Encrypt data block
 				if s.isClient {
 					cipher = secretbox.Seal([]byte{}, request.frame.data, &s.ClientSN, &s.NaclKey)
@@ -519,10 +519,10 @@ func (s *Session) sendLoop() {
 				ehdr.Mask()
 
 				// Make send buffer and copy cipher to buffer
-				buf := make([]byte, encryptedHeaderSize + len(cipher))
+				buf := make([]byte, encryptedHeaderSize+len(cipher))
 				copy(buf[:encryptedHeaderSize], ehdr.eb[:])
 				copy(buf[encryptedHeaderSize:], cipher)
-				
+
 				// Write via conn
 				_, err = s.conn.Write(buf[:encryptedHeaderSize+len(cipher)])
 
@@ -536,20 +536,20 @@ func (s *Session) sendLoop() {
 				ehdr.Mask()
 
 				// Make send buffer and copy raw data to buffer
-				buf := make([]byte, encryptedHeaderSize + len(request.frame.data))
+				buf := make([]byte, encryptedHeaderSize+len(request.frame.data))
 				copy(buf[:encryptedHeaderSize], ehdr.eb[:])
 				copy(buf[encryptedHeaderSize:], request.frame.data)
 
 				// Write via conn
 				n, err = s.conn.Write(ehdr.eb[:encryptedHeaderSize+len(request.frame.data)])
-	
+
 				// Set wrote bytes, subtract raw header size from n
 				n -= headerSize
 				if n < 0 {
 					n = 0
 				}
 			}
-			
+
 			result := writeResult{
 				n:   n,
 				err: err,
@@ -572,7 +572,6 @@ func (s *Session) sendLoop() {
 func (s *Session) writeFrame(f Frame) (n int, err error) {
 	return s.writeFrameInternal(f, time.After(openCloseTimeout), CLSCTRL)
 }
-
 
 // internal writeFrame version to support deadline used in keepalive
 func (s *Session) writeFrameInternal(f Frame, deadline <-chan time.Time, class CLASSID) (int, error) {

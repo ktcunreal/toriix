@@ -6,7 +6,6 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	//"crypto/sha256"
 	"time"
 )
 

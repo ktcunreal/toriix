@@ -1,7 +1,7 @@
 package main
 
 import (
-	"./smux"
+	"github.com/ktcunreal/toriix/smux"
 	"encoding/json"
 	"flag"
 	"log"
@@ -32,12 +32,12 @@ func readFromConfig() *Config {
 	if *c != "" {
 		file, err := os.Open(*c)
 		defer file.Close()
-		log.Printf("LOADING CONFIG FROM %s", *c)
+		log.Printf("Loading config from %s", *c)
 		if err != nil {
-			log.Fatalf("LOADING CONFIG FAILED %v", err)
+			log.Fatalf("Loading config failed %v", err)
 		}
 		if err := json.NewDecoder(file).Decode(conf); err != nil {
-			log.Fatalf("PARSE CONFIG ERROR: %v", err)
+			log.Fatalf("Parsing config failed: %v", err)
 		}
 		return conf
 	}
@@ -50,7 +50,7 @@ func readFromConfig() *Config {
 	if !ValidateConf(conf) {
 		log.Fatalln("Config is not valid!")
 	}
-	
+
 	return conf
 }
 func ValidateConf(c *Config) bool {
@@ -80,11 +80,11 @@ func ValidateConf(c *Config) bool {
 	}
 	ip, port = c.Egress[:i], c.Egress[i+1:]
 	if len(ip) == 0 || net.ParseIP(ip) == nil {
-		
+
 		return false
 	}
 	if p, err := strconv.Atoi(port); err != nil || p > 65535 || p < 1 {
-		
+
 		return false
 	}
 

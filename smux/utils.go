@@ -1,18 +1,18 @@
 package smux
 
 import (
+	"crypto/sha256"
 	"math/rand"
 	"time"
-	"crypto/sha256"
 )
 
 type Keyring struct {
-	p    string
+	p string
 }
 
 func NewKeyring(s string) *Keyring {
 	Keyring := &Keyring{
-		p:    s,
+		p: s,
 	}
 	return Keyring
 }

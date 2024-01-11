@@ -1,13 +1,13 @@
 package main
 
 import (
-	"./smux"
+	"github.com/ktcunreal/toriix/smux"
 	"fmt"
 	"io"
 	"log"
 	"net"
-	"time"
 	"sync"
+	"time"
 )
 
 func main() {
@@ -18,7 +18,7 @@ func main() {
 	case "client":
 		client(f)
 	default:
-		fmt.Println("please specify running mode!")		
+		fmt.Println("Please specify running mode!")
 	}
 }
 
@@ -39,7 +39,7 @@ func server(c *Config) {
 			defer server.wg.Done()
 			conn, err := listener.Accept()
 			if err != nil {
-				log.Printf("FAILED TO ACCEPT TCP CONNECTION: %v", err)
+				log.Printf("Failed to accept incoming tcp connection %v", err)
 				continue
 			}
 
@@ -60,11 +60,10 @@ func server(c *Config) {
 				// Establish Remote TCP connection
 				dst, err := net.Dial("tcp", server.conf.Egress)
 				if err != nil {
-					log.Printf("UPSTREAM SERVICE UNREACHABLE: %v", err)
+					log.Printf("Upstream service unreachable: %v", err)
 					continue
 				}
 				// forwarding
-				//csrc := NewS2Stream(src)
 				Pipe(src, dst)
 			}
 		}
@@ -89,7 +88,7 @@ func client(c *Config) {
 		for {
 			conn, err := net.Dial("tcp", client.conf.Egress)
 			if err != nil {
-				log.Println("TCP SERVER UNREACHABLE")
+				log.Println("Tcp server unreachable")
 				time.Sleep(time.Second * 5)
 				continue
 			}
@@ -102,16 +101,15 @@ func client(c *Config) {
 			for {
 				src, err := listener.Accept()
 				if err != nil {
-					log.Printf("FAILED TO ACCEPT TCP CONNECTION: %v", err)
+					log.Printf("Failed to accept incoming tcp connection: %v", err)
 					continue
 				}
 
 				str, err := session.OpenStream()
 				if err != nil {
-					log.Println("stream down")
+					log.Println("Smux stream down")
 					break
 				}
-				//cstr := NewS2Stream(str)
 				Pipe(src, str)
 			}
 		}

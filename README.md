@@ -4,7 +4,7 @@
 A simple, easy-to-use tunnel utility written in go.
 
 ## Feature
-- With Multiplexing
+- Connection Multiplexing
 - AEAD Cipher
 - Lightweight
 
