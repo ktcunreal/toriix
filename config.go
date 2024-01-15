@@ -5,10 +5,7 @@ import (
 	"flag"
 	"github.com/ktcunreal/toriix/smux"
 	"log"
-	"net"
 	"os"
-	"strconv"
-	"strings"
 )
 
 type Config struct {
@@ -58,35 +55,5 @@ func ValidateConf(c *Config) bool {
 	if len(c.Ingress)*len(c.Egress) == 0 {
 		return false
 	}
-
-	// Check Ingress Ip:Port
-	var ip, port string
-	i := strings.LastIndexByte(c.Ingress, ':')
-	if i == -1 {
-		return false
-	}
-	ip, port = c.Ingress[:i], c.Ingress[i+1:]
-	if len(ip) == 0 || net.ParseIP(ip) == nil {
-		return false
-	}
-	if p, err := strconv.Atoi(port); err != nil || p > 65535 || p < 1 {
-		return false
-	}
-
-	// Check Egress Ip:Port
-	i = strings.LastIndexByte(c.Egress, ':')
-	if i == -1 {
-		return false
-	}
-	ip, port = c.Egress[:i], c.Egress[i+1:]
-	if len(ip) == 0 || net.ParseIP(ip) == nil {
-
-		return false
-	}
-	if p, err := strconv.Atoi(port); err != nil || p > 65535 || p < 1 {
-
-		return false
-	}
-
 	return true
 }

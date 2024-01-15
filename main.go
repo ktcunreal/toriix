@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/ktcunreal/toriix/smux"
 	"io"
 	"log"
@@ -22,7 +21,7 @@ func main() {
 	case "client":
 		client(f)
 	default:
-		fmt.Println("Please specify running mode!")
+		log.Fatalln("Please specify running mode!")
 	}
 }
 
@@ -48,22 +47,22 @@ func server(c *Config) {
 			}
 			defer conn.Close()
 
-			session, err := smux.Server(conn, nil, server.conf.PSK)
-			if err != nil {
-				fmt.Println(err)
-				continue
-			}
-			clientCnt += 1
-			log.Printf("Client num is: %v\n", clientCnt)
-			defer session.Close()
-
 			go func() {
+				session, err := smux.Server(conn, nil, server.conf.PSK)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				clientCnt += 1
+				log.Printf("Client num is: %v\n", clientCnt)
+				defer session.Close()
 				for {
 					// Accept smux stream
 					src, err := session.AcceptStream()
 					if err != nil {
-						fmt.Println(err)
-						break
+						clientCnt -= 1
+						log.Printf("%v\nClient num is: %v\n", err, clientCnt)
+						return
 					}
 					defer src.Close()
 
