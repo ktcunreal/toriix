@@ -328,9 +328,7 @@ func (s *Session) returnTokens(n int) {
 
 // recvLoop keeps on reading from underlying connection if tokens are available
 func (s *Session) recvLoop() {
-	//var hdr rawHeader
 	var updHdr updHeader
-	// var ehdr encryptedHeader
 	ehdr := NewEncryptedHeader(s.keyring)
 
 	for {

@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/ktcunreal/toriix/smux"
 	"encoding/json"
 	"flag"
+	"github.com/ktcunreal/toriix/smux"
 	"log"
 	"net"
 	"os"

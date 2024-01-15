@@ -1,13 +1,17 @@
 package main
 
 import (
-	"github.com/ktcunreal/toriix/smux"
 	"fmt"
+	"github.com/ktcunreal/toriix/smux"
 	"io"
 	"log"
 	"net"
 	"sync"
 	"time"
+)
+
+var (
+	clientCnt = 0
 )
 
 func main() {
@@ -42,30 +46,38 @@ func server(c *Config) {
 				log.Printf("Failed to accept incoming tcp connection %v", err)
 				continue
 			}
+			defer conn.Close()
 
 			session, err := smux.Server(conn, nil, server.conf.PSK)
 			if err != nil {
 				fmt.Println(err)
+				continue
 			}
+			clientCnt += 1
+			log.Printf("Client num is: %v\n", clientCnt)
 			defer session.Close()
 
-			for {
-				// Accept smux stream
-				src, err := session.AcceptStream()
-				if err != nil {
-					fmt.Println(err)
-					break
-				}
+			go func() {
+				for {
+					// Accept smux stream
+					src, err := session.AcceptStream()
+					if err != nil {
+						fmt.Println(err)
+						break
+					}
+					defer src.Close()
 
-				// Establish Remote TCP connection
-				dst, err := net.Dial("tcp", server.conf.Egress)
-				if err != nil {
-					log.Printf("Upstream service unreachable: %v", err)
-					continue
+					// Establish Remote TCP connection
+					dst, err := net.Dial("tcp", server.conf.Egress)
+					if err != nil {
+						log.Printf("Upstream service unreachable: %v", err)
+						continue
+					}
+					defer dst.Close()
+					// forwarding
+					Pipe(src, dst)
 				}
-				// forwarding
-				Pipe(src, dst)
-			}
+			}()
 		}
 	}()
 	server.wg.Wait()
@@ -92,6 +104,8 @@ func client(c *Config) {
 				time.Sleep(time.Second * 5)
 				continue
 			}
+			defer conn.Close()
+
 			session, err := smux.Client(conn, nil, client.conf.PSK)
 			if err != nil {
 				continue
@@ -102,14 +116,17 @@ func client(c *Config) {
 				src, err := listener.Accept()
 				if err != nil {
 					log.Printf("Failed to accept incoming tcp connection: %v", err)
-					continue
+					break
 				}
+				defer src.Close()
 
 				str, err := session.OpenStream()
 				if err != nil {
 					log.Println("Smux stream down")
 					break
 				}
+				defer str.Close()
+
 				Pipe(src, str)
 			}
 		}
