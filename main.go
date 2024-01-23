@@ -11,9 +11,16 @@ import (
 
 var (
 	clientCnt = 0
+	Version string
 )
 
 func main() {
+	if len(Version) > 0 {
+		log.Printf("Toriix version: %s\n", Version)
+	} else {
+		log.Printf("Running in dev mode")
+	}
+
 	f := readFromConfig()
 	switch f.Mode {
 	case "server":
