@@ -107,13 +107,15 @@ func client(c *Config) {
 			conn, err := net.Dial("tcp", client.conf.Egress)
 			if err != nil {
 				log.Println("Tcp server unreachable")
-				time.Sleep(time.Second * 5)
+				time.Sleep(time.Second)
 				continue
 			}
 			defer conn.Close()
 
+
 			session, err := smux.Client(conn, nil, client.conf.PSK)
 			if err != nil {
+				log.Printf("Smux session down: %v\n", err)
 				continue
 			}
 			defer session.Close()
@@ -121,14 +123,14 @@ func client(c *Config) {
 			for {
 				src, err := listener.Accept()
 				if err != nil {
-					log.Printf("Failed to accept incoming tcp connection: %v", err)
-					break
+					log.Printf("Failed to accept incoming tcp connection: %v\n", err)
+					continue
 				}
 				defer src.Close()
 
 				str, err := session.OpenStream()
 				if err != nil {
-					log.Println("Smux stream down")
+					log.Printf("Smux stream down: %v\n", err)
 					break
 				}
 				defer str.Close()
