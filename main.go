@@ -7,6 +7,8 @@ import (
 	"net"
 	"sync"
 	"time"
+	"github.com/djherbis/buffer"
+	"github.com/djherbis/nio/v3"
 )
 
 var (
@@ -81,7 +83,7 @@ func server(c *Config) {
 					}
 					defer dst.Close()
 					// forwarding
-					Pipe(src, dst)
+					NPipe(src, dst)
 				}
 			}()
 		}
@@ -135,7 +137,7 @@ func client(c *Config) {
 				}
 				defer str.Close()
 
-				Pipe(src, str)
+				NPipe(src, str)
 			}
 		}
 	}()
@@ -164,6 +166,21 @@ func Pipe(src, dst io.ReadWriteCloser) {
 		defer src.Close()
 		defer dst.Close()
 		if _, err := io.Copy(dst, src); err != nil {
+			return
+		}
+	}()
+}
+
+func NPipe(src, dst io.ReadWriteCloser) {
+	go func(){
+		defer src.Close()
+		if _, err := nio.Copy(dst, src, buffer.New(32*1024)); err != nil {
+			return
+		}
+	}()
+	go func(){
+		defer dst.Close()
+		if _, err := nio.Copy(src, dst, buffer.New(32*1024)); err != nil {
 			return
 		}
 	}()
