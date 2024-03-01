@@ -16,3 +16,5 @@ CGO_ENABLED=0 GOARCH="amd64" GOOS="linux" go build -ldflags "${FLAGS}" -o ${RELE
 CGO_ENABLED=0 GOARCH="amd64" GOOS="windows" go build -o ${RELEASE_DIR}/${DATE}/toriix_windows_amd64_${DATE} ${REPO_DIR}/*.go
 # Build arm linux binary
 CGO_ENABLED=0 GOARCH="arm" GOOS="linux" go build -o ${RELEASE_DIR}/${DATE}/toriix_linux_arm_${DATE} ${REPO_DIR}/*.go
+# Build x86 macos binary
+CGO_ENABLED=0 GOARCH="amd64" GOOS="darwin" go build -o ${RELEASE_DIR}/${DATE}/toriix_macos_amd64_${DATE} ${REPO_DIR}/*.go

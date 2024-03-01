@@ -141,7 +141,6 @@ func client(c *Config) {
 			}
 		}
 	}()
-
 	client.wg.Wait()
 }
 
@@ -159,6 +158,7 @@ func Pipe(src, dst io.ReadWriteCloser) {
 		defer src.Close()
 		defer dst.Close()
 		if _, err := io.Copy(src, dst); err != nil {
+			log.Println(err)
 			return
 		}
 	}()
@@ -166,6 +166,7 @@ func Pipe(src, dst io.ReadWriteCloser) {
 		defer src.Close()
 		defer dst.Close()
 		if _, err := io.Copy(dst, src); err != nil {
+			log.Println(err)
 			return
 		}
 	}()
@@ -175,12 +176,14 @@ func NPipe(src, dst io.ReadWriteCloser) {
 	go func(){
 		defer src.Close()
 		if _, err := nio.Copy(dst, src, buffer.New(32*1024)); err != nil {
+			log.Println(err)
 			return
 		}
 	}()
 	go func(){
 		defer dst.Close()
 		if _, err := nio.Copy(src, dst, buffer.New(32*1024)); err != nil {
+			log.Println(err)
 			return
 		}
 	}()
