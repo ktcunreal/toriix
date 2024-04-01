@@ -35,21 +35,21 @@ func main() {
 
 func server(c *Config) {
 	server := struct {
-		conf      *Config
-		wg        sync.WaitGroup
-		clientCnt uint8
+		conf *Config
+		wg   sync.WaitGroup
+		sessionCount uint8
 	}{
-		conf:      c,
-		wg:        sync.WaitGroup{},
-		clientCnt: 0,
+		conf: c,
+		wg:   sync.WaitGroup{},
+		sessionCount: 0,
 	}
 
 	listener := initListener(server.conf.Ingress)
 	defer listener.Close()
 	server.wg.Add(1)
 	go func() {
+		defer server.wg.Done()
 		for {
-			defer server.wg.Done()
 			conn, err := listener.Accept()
 			if err != nil {
 				log.Printf("Failed to accept incoming tcp connection %v", err)
@@ -60,29 +60,37 @@ func server(c *Config) {
 			go func() {
 				session, err := smux.Server(conn, nil, server.conf.PSK)
 				if err != nil {
-					log.Println(err)
+					log.Printf("%v\n", err)
 					return
 				}
-				server.clientCnt += 1
-				log.Printf("Client num is: %v\n", server.clientCnt)
+				server.sessionCount += 1
+				log.Printf("Session count: %v\n", server.sessionCount)
 
 				for {
+					var dst net.Conn
 					// Accept smux stream
 					src, err := session.AcceptStream()
 					if err != nil {
-						server.clientCnt -= 1
-						log.Printf("%v\nClient num is: %v\n", err, server.clientCnt)
+						log.Printf("%v\n", err)
+						server.sessionCount -= 1
+						log.Printf("Session count: %v\n", server.sessionCount)
 						return
 					}
-					defer src.Close()
 
 					// Establish Remote TCP connection
-					dst, err := net.Dial("tcp", server.conf.Egress)
-					if err != nil {
-						log.Printf("Upstream service unreachable: %v", err)
+					for i := 0; i <= 5; i++ {
+						dst, err = net.Dial("tcp", server.conf.Egress)
+						if err != nil {
+							log.Printf("Upstream service unreachable: %v", err)
+							time.Sleep(time.Second)
+							continue
+						}
+						break
+					}
+
+					if dst == nil {
 						continue
 					}
-					defer dst.Close()
 					// forwarding
 					go NPipe(src, dst)
 				}
@@ -107,43 +115,47 @@ func client(c *Config) {
 	go func() {
 		defer client.wg.Done()
 		for {
-			for {
-				log.Println("creating new session")
-				conn, err := net.Dial("tcp", client.conf.Egress)
+			var conn net.Conn
+			var session *smux.Session
+
+			for i := 0; i < 16; i++ {
+				var str *smux.Stream
+
+				src, err := listener.Accept()
 				if err != nil {
-					log.Println("Tcp server unreachable")
-					time.Sleep(time.Second)
+					log.Printf("Failed to accept incoming tcp connection: %v\n", err)
 					continue
 				}
-				defer conn.Close()
+				defer src.Close()
 
-				session, err := smux.Client(conn, nil, client.conf.PSK)
-				if err != nil {
-					log.Printf("Smux session down: %v\n", err)
-					continue
-				}
-				defer session.Close()
+				for {
+					for conn == nil || session == nil || session.IsClosed() {
+						log.Println("Creating new session")
+						conn, err = net.Dial("tcp", client.conf.Egress)
+						if err != nil {
+							log.Println("Tcp server unreachable")
+							time.Sleep(time.Second)
+							continue
+						}
 
-				for i := 0; i < 8; i++ {
-					src, err := listener.Accept()
+						session, err = smux.Client(conn, nil, client.conf.PSK)
+						if err != nil {
+							log.Printf("Smux session down: %v\n", err)
+							continue
+						}
+					}
+					str, err = session.OpenStream()
 					if err != nil {
-						log.Printf("Failed to accept incoming tcp connection: %v\n", err)
+						log.Printf("Smux stream unavailable: %v\n", err)
+						time.Sleep(time.Second)
 						continue
 					}
-					//defer src.Close()
-
-					if session.IsClosed() {
-						log.Printf("Session unexpectly closed...\n")
-					}
-					str, err := session.OpenStream()
-					if err != nil {
-						log.Printf("Smux stream down: %v\n", err)
-						break
-					}
-					//defer str.Close()
-
-					go NPipe(src, str)
+					break
 				}
+				//defer conn.Close()
+				//defer str.Close()
+				//defer session.Close()
+				go NPipe(src, str)
 			}
 		}
 	}()
@@ -202,6 +214,8 @@ func NPipe2(src, dst io.ReadWriteCloser) {
 }
 
 func NPipe(src, dst io.ReadWriteCloser) {
+	defer src.Close()
+	defer dst.Close()
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 	go func() {
@@ -218,8 +232,5 @@ func NPipe(src, dst io.ReadWriteCloser) {
 			return
 		}
 	}()
-
 	wg.Wait()
-	src.Close()
-	dst.Close()
 }
