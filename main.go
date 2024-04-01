@@ -1,18 +1,17 @@
 package main
 
 import (
+	"github.com/djherbis/buffer"
+	"github.com/djherbis/nio/v3"
 	"github.com/ktcunreal/toriix/smux"
 	"io"
 	"log"
 	"net"
 	"sync"
 	"time"
-	"github.com/djherbis/buffer"
-	"github.com/djherbis/nio/v3"
 )
 
 var (
-	clientCnt = 0
 	Version string
 )
 
@@ -36,11 +35,13 @@ func main() {
 
 func server(c *Config) {
 	server := struct {
-		conf *Config
-		wg   sync.WaitGroup
+		conf      *Config
+		wg        sync.WaitGroup
+		clientCnt uint8
 	}{
-		conf: c,
-		wg:   sync.WaitGroup{},
+		conf:      c,
+		wg:        sync.WaitGroup{},
+		clientCnt: 0,
 	}
 
 	listener := initListener(server.conf.Ingress)
@@ -62,15 +63,15 @@ func server(c *Config) {
 					log.Println(err)
 					return
 				}
-				clientCnt += 1
-				log.Printf("Client num is: %v\n", clientCnt)
-				defer session.Close()
+				server.clientCnt += 1
+				log.Printf("Client num is: %v\n", server.clientCnt)
+
 				for {
 					// Accept smux stream
 					src, err := session.AcceptStream()
 					if err != nil {
-						clientCnt -= 1
-						log.Printf("%v\nClient num is: %v\n", err, clientCnt)
+						server.clientCnt -= 1
+						log.Printf("%v\nClient num is: %v\n", err, server.clientCnt)
 						return
 					}
 					defer src.Close()
@@ -83,7 +84,7 @@ func server(c *Config) {
 					}
 					defer dst.Close()
 					// forwarding
-					NPipe(src, dst)
+					go NPipe(src, dst)
 				}
 			}()
 		}
@@ -106,38 +107,43 @@ func client(c *Config) {
 	go func() {
 		defer client.wg.Done()
 		for {
-			conn, err := net.Dial("tcp", client.conf.Egress)
-			if err != nil {
-				log.Println("Tcp server unreachable")
-				time.Sleep(time.Second)
-				continue
-			}
-			defer conn.Close()
-
-
-			session, err := smux.Client(conn, nil, client.conf.PSK)
-			if err != nil {
-				log.Printf("Smux session down: %v\n", err)
-				continue
-			}
-			defer session.Close()
-
 			for {
-				src, err := listener.Accept()
+				log.Println("creating new session")
+				conn, err := net.Dial("tcp", client.conf.Egress)
 				if err != nil {
-					log.Printf("Failed to accept incoming tcp connection: %v\n", err)
+					log.Println("Tcp server unreachable")
+					time.Sleep(time.Second)
 					continue
 				}
-				defer src.Close()
+				defer conn.Close()
 
-				str, err := session.OpenStream()
+				session, err := smux.Client(conn, nil, client.conf.PSK)
 				if err != nil {
-					log.Printf("Smux stream down: %v\n", err)
-					break
+					log.Printf("Smux session down: %v\n", err)
+					continue
 				}
-				defer str.Close()
+				defer session.Close()
 
-				NPipe(src, str)
+				for i := 0; i < 8; i++ {
+					src, err := listener.Accept()
+					if err != nil {
+						log.Printf("Failed to accept incoming tcp connection: %v\n", err)
+						continue
+					}
+					//defer src.Close()
+
+					if session.IsClosed() {
+						log.Printf("Session unexpectly closed...\n")
+					}
+					str, err := session.OpenStream()
+					if err != nil {
+						log.Printf("Smux stream down: %v\n", err)
+						break
+					}
+					//defer str.Close()
+
+					go NPipe(src, str)
+				}
 			}
 		}
 	}()
@@ -172,19 +178,48 @@ func Pipe(src, dst io.ReadWriteCloser) {
 	}()
 }
 
-func NPipe(src, dst io.ReadWriteCloser) {
-	go func(){
+func NPipe2(src, dst io.ReadWriteCloser) {
+	go func() {
 		defer src.Close()
+		if _, err := nio.Copy(dst, src, buffer.New(32*1024)); err != nil {
+			if err == io.EOF {
+				log.Println("EOF")
+			}
+			log.Println(err)
+			return
+		}
+	}()
+	go func() {
+		defer dst.Close()
+		if _, err := nio.Copy(src, dst, buffer.New(32*1024)); err != nil {
+			if err == io.EOF {
+				log.Println("EOF")
+			}
+			log.Println(err)
+			return
+		}
+	}()
+}
+
+func NPipe(src, dst io.ReadWriteCloser) {
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
 		if _, err := nio.Copy(dst, src, buffer.New(32*1024)); err != nil {
 			log.Println(err)
 			return
 		}
 	}()
-	go func(){
-		defer dst.Close()
+	go func() {
+		defer wg.Done()
 		if _, err := nio.Copy(src, dst, buffer.New(32*1024)); err != nil {
 			log.Println(err)
 			return
 		}
 	}()
+
+	wg.Wait()
+	src.Close()
+	dst.Close()
 }
