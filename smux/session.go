@@ -5,6 +5,7 @@ import (
 	"errors"
 	"golang.org/x/crypto/nacl/secretbox"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -598,5 +599,26 @@ func (s *Session) writeFrameInternal(f Frame, deadline <-chan time.Time, class C
 		return 0, s.socketWriteError.Load().(error)
 	case <-deadline:
 		return 0, ErrTimeout
+	}
+}
+
+func (s *Session) Recycler() {
+	log.Println("Session await recycling")
+	t := time.NewTicker(time.Second * 180)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			if !atomic.CompareAndSwapInt32(&s.dataReady, 1, 0) {
+				if atomic.LoadInt32(&s.bucket) > 0 {
+					log.Println("Closing stalled session")
+					s.Close()
+					return
+				}
+			}
+		case <-s.die:
+			log.Println("Session is closed")
+			return
+		}
 	}
 }
