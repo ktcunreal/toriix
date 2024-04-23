@@ -122,9 +122,9 @@ func client(c *Config) {
 			}
 			defer lst[i].Close()
 
-			if i > 0 && lst [i-1] != nil {
-				go lst[i-1].Recycler()
-			}
+			//if i > 0 && lst [i-1] != nil {
+			//	go lst[i-1].Recycler()
+			//}
 
 			for {
 				if lst[i] == nil || lst[i].IsClosed() {

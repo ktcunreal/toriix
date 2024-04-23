@@ -604,7 +604,7 @@ func (s *Session) writeFrameInternal(f Frame, deadline <-chan time.Time, class C
 
 func (s *Session) Recycler() {
 	log.Println("Session await recycling")
-	t := time.NewTicker(time.Second * 180)
+	t := time.NewTicker(time.Second * 300)
 	defer t.Stop()
 	for {
 		select {
