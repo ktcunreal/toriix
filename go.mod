@@ -10,4 +10,3 @@ require (
 
 require golang.org/x/sys v0.17.0 // indirect
 
-replace github.com/ktcunreal/toriix/smux => ./smux
