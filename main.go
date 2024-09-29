@@ -53,7 +53,7 @@ func server(c *Config) {
 		go func() {
 			session, err := smux.Server(conn, nil, server.conf.PSK)
 			if err != nil {
-				log.Println(err)
+				log.Printf("Failed to create smux session: %v\n", err)
 				return
 			}
 			defer session.Close()
@@ -62,11 +62,16 @@ func server(c *Config) {
 				// Accept smux stream
 				src, err := session.AcceptStream()
 				if err != nil {
+					defer session.Close()
+					defer conn.Close()
+					log.Printf("Failed to accept smux stream: %v\n", err)
+					io.Copy(io.Discard, conn)
+					log.Printf("Remote peer disconnected...")
 					return
 				}
 				defer src.Close()
-				// Establish Remote TCP connection
 
+				// Establish Remote TCP connection
 				var dst net.Conn
 				for i := 0; i < 3; i++ {
 					dst, err = net.Dial("tcp", server.conf.Egress)
@@ -84,6 +89,7 @@ func server(c *Config) {
 				}
 
 				defer dst.Close()
+
 				// forwarding
 				NPipe(src, dst)
 			}
@@ -93,44 +99,32 @@ func server(c *Config) {
 
 func client(c *Config) {
 	client := struct {
-		conf       *Config
-		rollerSize int
+		conf *Config
 	}{
-		conf:       c,
-		rollerSize: 2 << 16,
+		conf: c,
 	}
 
 	listener := initListener(client.conf.Ingress)
 	defer listener.Close()
-
-	lst := make([]*smux.Session, client.rollerSize)
-
 	for {
-		for i := 0; i < client.rollerSize; i++ {
+	NewConn:
+		for {
 			conn, err := net.Dial("tcp", client.conf.Egress)
 			if err != nil {
 				log.Println("Tcp server unreachable")
-				time.Sleep(time.Second)
+				time.Sleep(time.Second * 3)
 				continue
 			}
 			defer conn.Close()
 
-			lst[i], err = smux.Client(conn, nil, client.conf.PSK)
+			session, err := smux.Client(conn, nil, client.conf.PSK)
 			if err != nil {
-				log.Printf("Smux session down: %v\n", err)
+				log.Printf("Failed to create smux session: %v\n", err)
 				continue
 			}
-			defer lst[i].Close()
-
-			//if i > 0 && lst [i-1] != nil {
-			//	go lst[i-1].Recycler()
-			//}
+			defer session.Close()
 
 			for {
-				if lst[i] == nil || lst[i].IsClosed() {
-					break
-				}
-
 				src, err := listener.Accept()
 				if err != nil {
 					log.Printf("Failed to accept incoming tcp connection: %v\n", err)
@@ -138,14 +132,17 @@ func client(c *Config) {
 				}
 				defer src.Close()
 
-				str, err := lst[i].OpenStream()
+				stream, err := session.OpenStream()
 				if err != nil {
 					log.Printf("Smux stream down: %v\n", err)
 					src.Close()
-					break
+					session.Close()
+					conn.Close()
+					break NewConn
 				}
-				defer str.Close()
-				NPipe(src, str)
+				defer stream.Close()
+
+				NPipe(src, stream)
 			}
 		}
 	}

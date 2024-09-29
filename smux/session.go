@@ -5,7 +5,7 @@ import (
 	"errors"
 	"golang.org/x/crypto/nacl/secretbox"
 	"io"
-	"log"
+	// "log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -90,6 +90,7 @@ type Session struct {
 	writes    chan writeRequest
 
 	isClient                               bool
+	UnlockKA				       		   bool
 	ServerSN, ServerRN, ClientSN, ClientRN [24]byte
 	NaclKey                                [32]byte
 	keyring                                *Keyring
@@ -382,6 +383,7 @@ func (s *Session) recvLoop() {
 								break
 							}
 							increment(&s.ClientRN)
+							s.UnlockKA = true
 						} else {
 							plain, ok = secretbox.Open(nil, ebuf[:], &s.ServerRN, &s.NaclKey)
 							if !ok {
@@ -389,6 +391,7 @@ func (s *Session) recvLoop() {
 								break
 							}
 							increment(&s.ServerRN)
+							s.UnlockKA = true
 						}
 
 						s.streamLock.Lock()
@@ -434,8 +437,10 @@ func (s *Session) keepalive() {
 	for {
 		select {
 		case <-tickerPing.C:
-			s.writeFrameInternal(newFrame(byte(s.config.Version), cmdNOP, 0), tickerPing.C, CLSCTRL)
-			s.notifyBucket() // force a signal to the recvLoop
+			if s.UnlockKA {
+				s.writeFrameInternal(newFrame(byte(s.config.Version), cmdNOP, 0), tickerPing.C, CLSCTRL)
+				s.notifyBucket() // force a signal to the recvLoop
+			}
 		case <-tickerTimeout.C:
 			if !atomic.CompareAndSwapInt32(&s.dataReady, 1, 0) {
 				// recvLoop may block while bucket is 0, in this case,
@@ -602,23 +607,3 @@ func (s *Session) writeFrameInternal(f Frame, deadline <-chan time.Time, class C
 	}
 }
 
-func (s *Session) Recycler() {
-	log.Println("Session await recycling")
-	t := time.NewTicker(time.Second * 300)
-	defer t.Stop()
-	for {
-		select {
-		case <-t.C:
-			if !atomic.CompareAndSwapInt32(&s.dataReady, 1, 0) {
-				if atomic.LoadInt32(&s.bucket) > 0 {
-					log.Println("Closing stalled session")
-					s.Close()
-					return
-				}
-			}
-		case <-s.die:
-			log.Println("Session is closed")
-			return
-		}
-	}
-}
