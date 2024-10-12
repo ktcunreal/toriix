@@ -1,11 +1,15 @@
 package smux
 
 import (
-	"crypto/sha256"
-	// "math/rand"
-	"time"
-	"encoding/binary"
+	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
+	"github.com/djherbis/buffer"
+	"github.com/djherbis/nio/v3"
+	"io"
+	"sync"
+	"time"
 )
 
 type Keyring struct {
@@ -70,7 +74,6 @@ func increment(b *[24]byte) {
 	}
 }
 
-
 type encryptedHeader struct {
 	eb  [encryptedHeaderSize]byte
 	pkr *Keyring
@@ -123,7 +126,26 @@ func (e *encryptedHeader) SetEncryptedHeader(cmd byte, sid uint32, cipherLen uin
 	binary.LittleEndian.PutUint16(e.eb[16:18], cipherLen)
 
 	// Set Checksum
-	copy(e.eb[18:], SHA256(e.eb[:18])[:2])
+	copy(e.eb[18:], e.pkr.Extract(SHA256(e.eb[:6]), "chksum")[:2])
+	copy(e.eb[18:], SHA256(e.eb[:])[:2])
+}
+
+func (e *encryptedHeader) ValidEncryptedHeader() bool {
+	// Validate timestamp
+	if Abs(int(time.Now().Unix())-int(binary.LittleEndian.Uint32(e.Timestamp()))) > 180 {
+		return false
+	}
+
+	// Validate Checksum
+	headerChksum := e.Chksum()
+
+	copy(e.eb[18:], e.pkr.Extract(SHA256(e.eb[:6]), "chksum")[:2])
+	chksum := SHA256(e.eb[:])[:2]
+
+	if !bytes.Equal(headerChksum, chksum) {
+		return false
+	}
+	return true
 }
 
 func (e *encryptedHeader) IV() []byte {
@@ -151,5 +173,65 @@ func (e *encryptedHeader) CMD() byte {
 }
 
 func (e *encryptedHeader) Chksum() []byte {
-	return e.eb[18:20]
+	buf := make([]byte, 2)
+	copy(buf, e.eb[18:20])
+	return buf
+}
+
+func Abs(i int) int {
+	if i < 0 {
+		return -i
+	}
+	return i
+}
+
+func NPipe(src, dst io.ReadWriteCloser) {
+	go func() {
+		defer src.Close()
+		if _, err := nio.Copy(dst, src, buffer.New(32*1024)); err != nil {
+			return
+		}
+	}()
+	go func() {
+		defer dst.Close()
+		if _, err := nio.Copy(src, dst, buffer.New(32*1024)); err != nil {
+			//log.Println(err)
+			return
+		}
+	}()
+}
+
+// Borrowed from kcptun
+// Pipe create a general bidirectional pipe between two streams
+func KPipe(alice, bob io.ReadWriteCloser, closeWait int) (errA, errB error) {
+	var closed sync.Once
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	streamCopy := func(dst io.Writer, src io.ReadCloser, err *error) {
+		// write error directly to the *pointer
+		_, *err = nio.Copy(dst, src, buffer.New(32*1024))
+		if closeWait > 0 {
+			<-time.After(time.Duration(closeWait) * time.Second)
+		}
+
+		// wg.Done() called
+		wg.Done()
+
+		// close only once
+		closed.Do(func() {
+			alice.Close()
+			bob.Close()
+		})
+	}
+
+	// start bidirectional stream copying
+	go streamCopy(alice, bob, &errA)
+	go streamCopy(bob, alice, &errB)
+
+	// wait for both direction to close
+	wg.Wait()
+
+	return
 }

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"github.com/djherbis/buffer"
-	"github.com/djherbis/nio/v3"
 	"github.com/ktcunreal/toriix/smux"
 	"io"
 	"log"
@@ -62,11 +60,13 @@ func server(c *Config) {
 				// Accept smux stream
 				src, err := session.AcceptStream()
 				if err != nil {
-					defer session.Close()
-					defer conn.Close()
 					log.Printf("Failed to accept smux stream: %v\n", err)
-					io.Copy(io.Discard, conn)
-					log.Printf("Remote peer disconnected...")
+					if err == smux.ErrInvalidProtocol || err == smux.ErrDecryptFailed {
+						io.Copy(io.Discard, conn)
+					}
+					session.Close()
+					conn.Close()
+					log.Printf("Remote peer disconnected")
 					return
 				}
 				defer src.Close()
@@ -87,11 +87,10 @@ func server(c *Config) {
 					src.Close()
 					continue
 				}
-
 				defer dst.Close()
 
 				// forwarding
-				NPipe(src, dst)
+				go smux.KPipe(src, dst, 10)
 			}
 		}()
 	}
@@ -142,7 +141,7 @@ func client(c *Config) {
 				}
 				defer stream.Close()
 
-				NPipe(src, stream)
+				go smux.KPipe(src, stream, 10)
 			}
 		}
 	}
@@ -155,40 +154,4 @@ func initListener(addr string) net.Listener {
 		log.Fatalln("LISTENER FAILED TO START: ", err)
 	}
 	return listener
-}
-
-func Pipe(src, dst io.ReadWriteCloser) {
-	go func() {
-		defer src.Close()
-		defer dst.Close()
-		if _, err := io.Copy(src, dst); err != nil {
-			log.Println(err)
-			return
-		}
-	}()
-	go func() {
-		defer src.Close()
-		defer dst.Close()
-		if _, err := io.Copy(dst, src); err != nil {
-			log.Println(err)
-			return
-		}
-	}()
-}
-
-func NPipe(src, dst io.ReadWriteCloser) {
-	go func() {
-		defer src.Close()
-		if _, err := nio.Copy(dst, src, buffer.New(32*1024)); err != nil {
-			//log.Println(err)
-			return
-		}
-	}()
-	go func() {
-		defer dst.Close()
-		if _, err := nio.Copy(src, dst, buffer.New(32*1024)); err != nil {
-			//log.Println(err)
-			return
-		}
-	}()
 }

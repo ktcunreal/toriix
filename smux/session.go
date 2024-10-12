@@ -5,7 +5,6 @@ import (
 	"errors"
 	"golang.org/x/crypto/nacl/secretbox"
 	"io"
-	// "log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -32,6 +31,7 @@ var (
 	ErrGoAway          = errors.New("stream id overflows, should start a new connection")
 	ErrTimeout         = errors.New("timeout")
 	ErrWouldBlock      = errors.New("operation would block on IO")
+	ErrInvalidHeader   = errors.New("header decryption failed")
 	ErrDecryptFailed   = errors.New("data decryption failed")
 )
 
@@ -90,7 +90,7 @@ type Session struct {
 	writes    chan writeRequest
 
 	isClient                               bool
-	UnlockKA				       		   bool
+	UnlockKA                               bool
 	ServerSN, ServerRN, ClientSN, ClientRN [24]byte
 	NaclKey                                [32]byte
 	keyring                                *Keyring
@@ -344,8 +344,16 @@ func (s *Session) recvLoop() {
 
 		// read header first
 		if _, err := io.ReadFull(s.conn, ehdr.eb[:]); err == nil {
-			atomic.StoreInt32(&s.dataReady, 1)
 			ehdr.Mask()
+
+			// Check integrity
+			if ok := ehdr.ValidEncryptedHeader(); !ok {
+				s.notifyReadError(ErrInvalidHeader)
+				return
+			}
+
+			atomic.StoreInt32(&s.dataReady, 1)
+
 			// Get sid
 			sid := ehdr.StreamID()
 
@@ -606,4 +614,3 @@ func (s *Session) writeFrameInternal(f Frame, deadline <-chan time.Time, class C
 		return 0, ErrTimeout
 	}
 }
-
