@@ -51,12 +51,6 @@ func ChunkBytes(b []byte, chunkSize int) [][]byte {
 	return chunks
 }
 
-// func randomASCIIChar() byte {
-// 	rand.Seed(time.Now().UnixNano())
-// 	randomInt := rand.Intn(95) + 32
-// 	return byte(randomInt)
-// }
-
 func XORBytes(a, b []byte) []byte {
 	buf := make([]byte, len(a))
 	for i, _ := range a {
@@ -183,22 +177,6 @@ func Abs(i int) int {
 		return -i
 	}
 	return i
-}
-
-func NPipe(src, dst io.ReadWriteCloser) {
-	go func() {
-		defer src.Close()
-		if _, err := nio.Copy(dst, src, buffer.New(32*1024)); err != nil {
-			return
-		}
-	}()
-	go func() {
-		defer dst.Close()
-		if _, err := nio.Copy(src, dst, buffer.New(32*1024)); err != nil {
-			//log.Println(err)
-			return
-		}
-	}()
 }
 
 // Borrowed from kcptun

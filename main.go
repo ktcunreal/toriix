@@ -48,7 +48,8 @@ func server(c *Config) {
 		}
 		defer conn.Close()
 
-		go func() {
+		go func(conn net.Conn) {
+			defer conn.Close()
 			session, err := smux.Server(conn, nil, server.conf.PSK)
 			if err != nil {
 				log.Printf("Failed to create smux session: %v\n", err)
@@ -61,38 +62,28 @@ func server(c *Config) {
 				src, err := session.AcceptStream()
 				if err != nil {
 					log.Printf("Failed to accept smux stream: %v\n", err)
-					if err == smux.ErrInvalidProtocol || err == smux.ErrDecryptFailed {
+					if err == smux.ErrInvalidProtocol || err == smux.ErrDecryptFailed || err == smux.ErrInvalidHeader {
 						io.Copy(io.Discard, conn)
 					}
-					session.Close()
-					conn.Close()
-					log.Printf("Remote peer disconnected")
 					return
 				}
 				defer src.Close()
 
 				// Establish Remote TCP connection
-				var dst net.Conn
-				for i := 0; i < 3; i++ {
-					dst, err = net.Dial("tcp", server.conf.Egress)
+				go func(src *smux.Stream) {
+					defer src.Close()
+					dst, err := net.Dial("tcp", server.conf.Egress)
 					if err != nil {
 						log.Printf("Upstream service unreachable: %v", err)
-						time.Sleep(time.Second)
-						continue
+						return
 					}
-					break
-				}
+					defer dst.Close()
 
-				if dst == nil {
-					src.Close()
-					continue
-				}
-				defer dst.Close()
-
-				// forwarding
-				go smux.KPipe(src, dst, 10)
+					// Forwarding
+					smux.KPipe(src, dst, 5)
+				}(src)
 			}
-		}()
+		}(conn)
 	}
 }
 
@@ -106,43 +97,44 @@ func client(c *Config) {
 	listener := initListener(client.conf.Ingress)
 	defer listener.Close()
 	for {
-	NewConn:
+		conn, err := net.Dial("tcp", client.conf.Egress)
+		if err != nil {
+			log.Println("Tcp server unreachable")
+			time.Sleep(time.Second * 5)
+			continue
+		}
+		defer conn.Close()
+
+		session, err := smux.Client(conn, nil, client.conf.PSK)
+		if err != nil {
+			log.Printf("Failed to create smux session: %v\n", err)
+			continue
+		}
+		defer session.Close()
+
 		for {
-			conn, err := net.Dial("tcp", client.conf.Egress)
+			if session.IsClosed() {
+				log.Println("Session is closed")
+				break
+			}
+			src, err := listener.Accept()
 			if err != nil {
-				log.Println("Tcp server unreachable")
-				time.Sleep(time.Second * 3)
+				log.Printf("Failed to accept incoming tcp connection: %v\n", err)
 				continue
 			}
-			defer conn.Close()
+			defer src.Close()
 
-			session, err := smux.Client(conn, nil, client.conf.PSK)
-			if err != nil {
-				log.Printf("Failed to create smux session: %v\n", err)
-				continue
-			}
-			defer session.Close()
-
-			for {
-				src, err := listener.Accept()
-				if err != nil {
-					log.Printf("Failed to accept incoming tcp connection: %v\n", err)
-					continue
-				}
+			go func(src net.Conn) {
 				defer src.Close()
-
 				stream, err := session.OpenStream()
 				if err != nil {
 					log.Printf("Smux stream down: %v\n", err)
-					src.Close()
 					session.Close()
-					conn.Close()
-					break NewConn
+					return
 				}
 				defer stream.Close()
-
-				go smux.KPipe(src, stream, 10)
-			}
+				smux.KPipe(src, stream, 5)
+			}(src)
 		}
 	}
 }
