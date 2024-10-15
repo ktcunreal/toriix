@@ -37,6 +37,8 @@ func server(c *Config) {
 		conf: c,
 	}
 
+	var debugCounter int
+	
 	listener := initListener(server.conf.Ingress)
 	defer listener.Close()
 
@@ -80,7 +82,7 @@ func server(c *Config) {
 					defer dst.Close()
 
 					// Forwarding
-					smux.KPipe(src, dst, 5)
+					smux.Pipe(src, dst, 0, debugCounter)
 				}(src)
 			}
 		}(conn)
@@ -88,6 +90,7 @@ func server(c *Config) {
 }
 
 func client(c *Config) {
+	var debugCounter int
 	client := struct {
 		conf *Config
 	}{
@@ -124,7 +127,7 @@ func client(c *Config) {
 			}
 			defer src.Close()
 
-			go func(src net.Conn) {
+			go func(src net.Conn, session *smux.Session) {
 				defer src.Close()
 				stream, err := session.OpenStream()
 				if err != nil {
@@ -133,8 +136,14 @@ func client(c *Config) {
 					return
 				}
 				defer stream.Close()
-				smux.KPipe(src, stream, 5)
-			}(src)
+				err1, err2 := smux.Pipe(src, stream, 0, debugCounter)
+				if err1 != nil && err1 != io.EOF {
+					log.Printf("%v\n", err1)
+				}
+				if err2 != nil && err2 != io.EOF {
+					log.Printf("%v\n", err2)
+				}
+			}(src, session)
 		}
 	}
 }

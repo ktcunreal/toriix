@@ -5,9 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
-	"github.com/djherbis/buffer"
-	"github.com/djherbis/nio/v3"
 	"io"
+	"log"
 	"sync"
 	"time"
 )
@@ -180,8 +179,25 @@ func Abs(i int) int {
 }
 
 // Borrowed from kcptun
-// Pipe create a general bidirectional pipe between two streams
-func KPipe(alice, bob io.ReadWriteCloser, closeWait int) (errA, errB error) {
+
+// Memory optimized io.Copy function specified for this library
+func Copy(dst io.Writer, src io.Reader) (written int64, err error) {
+	// If the reader has a WriteTo method, use it to do the copy.
+	// Avoids an allocation and a copy.
+	if wt, ok := src.(io.WriterTo); ok {
+		return wt.WriteTo(dst)
+	}
+	// Similarly, if the writer has a ReadFrom method, use it to do the copy.
+	if rt, ok := dst.(io.ReaderFrom); ok {
+		return rt.ReadFrom(src)
+	}
+
+	// fallback to standard io.CopyBuffer
+	buf := make([]byte, 8192)
+	return io.CopyBuffer(dst, src, buf)
+}
+
+func Pipe(alice, bob io.ReadWriteCloser, closeWait int, debugCounter int) (errA, errB error) {
 	var closed sync.Once
 
 	var wg sync.WaitGroup
@@ -189,7 +205,7 @@ func KPipe(alice, bob io.ReadWriteCloser, closeWait int) (errA, errB error) {
 
 	streamCopy := func(dst io.Writer, src io.ReadCloser, err *error) {
 		// write error directly to the *pointer
-		_, *err = nio.Copy(dst, src, buffer.New(32*1024))
+		_, *err = Copy(dst, src)
 		if closeWait > 0 {
 			<-time.After(time.Duration(closeWait) * time.Second)
 		}
@@ -208,8 +224,11 @@ func KPipe(alice, bob io.ReadWriteCloser, closeWait int) (errA, errB error) {
 	go streamCopy(alice, bob, &errA)
 	go streamCopy(bob, alice, &errB)
 
+	debugCounter++
+	log.Printf("debugCounter: %v\n", debugCounter)
 	// wait for both direction to close
 	wg.Wait()
-
+	debugCounter--
+	log.Printf("debugCounter: %v\n", debugCounter)
 	return
 }
