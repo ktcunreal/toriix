@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
-	"log"
+	//"log"
 	"sync"
 	"time"
 )
@@ -197,7 +197,7 @@ func Copy(dst io.Writer, src io.Reader) (written int64, err error) {
 	return io.CopyBuffer(dst, src, buf)
 }
 
-func Pipe(alice, bob io.ReadWriteCloser, closeWait int, debugCounter int) (errA, errB error) {
+func Pipe(alice, bob io.ReadWriteCloser, closeWait int) (errA, errB error) {
 	var closed sync.Once
 
 	var wg sync.WaitGroup
@@ -224,11 +224,8 @@ func Pipe(alice, bob io.ReadWriteCloser, closeWait int, debugCounter int) (errA,
 	go streamCopy(alice, bob, &errA)
 	go streamCopy(bob, alice, &errB)
 
-	debugCounter++
-	log.Printf("debugCounter: %v\n", debugCounter)
 	// wait for both direction to close
 	wg.Wait()
-	debugCounter--
-	log.Printf("debugCounter: %v\n", debugCounter)
+
 	return
 }
