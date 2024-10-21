@@ -5,8 +5,8 @@ import (
 	"errors"
 	"golang.org/x/crypto/nacl/secretbox"
 	"io"
-	"net"
 	"log"
+	"net"	
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,7 +91,7 @@ type Session struct {
 	writes    chan writeRequest
 
 	isClient                               bool
-	// UnlockKA                               bool
+	UnlockKA                               bool
 	ServerSN, ServerRN, ClientSN, ClientRN [24]byte
 	NaclKey                                [32]byte
 	keyring                                *Keyring
@@ -125,9 +125,9 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool, key string
 	go s.shaperLoop()
 	go s.recvLoop()
 	go s.sendLoop()
-	// if !config.KeepAliveDisabled {
-	// 	go s.keepalive()
-	// }
+	if !config.KeepAliveDisabled {
+	 	go s.keepalive()
+	}
 	return s
 }
 
@@ -392,7 +392,7 @@ func (s *Session) recvLoop() {
 								break
 							}
 							increment(&s.ClientRN)
-							// s.UnlockKA = true
+							s.UnlockKA = true
 						} else {
 							plain, ok = secretbox.Open(nil, ebuf[:], &s.ServerRN, &s.NaclKey)
 							if !ok {
@@ -400,7 +400,7 @@ func (s *Session) recvLoop() {
 								break
 							}
 							increment(&s.ServerRN)
-							// s.UnlockKA = true
+							s.UnlockKA = true
 						}
 
 						s.streamLock.Lock()
@@ -446,10 +446,10 @@ func (s *Session) keepalive() {
 	for {
 		select {
 		case <-tickerPing.C:
-			//if s.UnlockKA {
+			if s.UnlockKA {
 				s.writeFrameInternal(newFrame(byte(s.config.Version), cmdNOP, 0), tickerPing.C, CLSCTRL)
 				s.notifyBucket() // force a signal to the recvLoop
-			//}
+			}
 		case <-tickerTimeout.C:
 			if !atomic.CompareAndSwapInt32(&s.dataReady, 1, 0) {
 				// recvLoop may block while bucket is 0, in this case,
@@ -477,7 +477,6 @@ func (s *Session) shaperLoop() {
 		if len(reqs) > 0 {
 			chWrite = s.writes
 			next = heap.Pop(&reqs).(writeRequest)
-			log.Printf("shaper pos1: %v\n", chWrite)
 		} else {
 			chWrite = nil
 		}
@@ -499,12 +498,10 @@ func (s *Session) shaperLoop() {
 			return
 		case r := <-chShaper:
 			if chWrite != nil { // next is valid, reshape
-				log.Printf("shaper pos2: %v\n", chWrite)
 				heap.Push(&reqs, next)
 			}
 			heap.Push(&reqs, r)
 		case chWrite <- next:
-			log.Printf("shaper pos3: %v\n", chWrite)
 		}
 	}
 }
@@ -547,6 +544,18 @@ func (s *Session) sendLoop() {
 				if err != nil {
 					n = 0
 				}
+			} else if request.frame.cmd == 3 {
+				ehdr.SetEncryptedHeader(3, request.frame.sid, 0)
+				ehdr.Mask()
+
+				n, err = s.conn.Write(ehdr.eb[:encryptedHeaderSize])
+
+				// Set wrote bytes, subtract raw header size from n
+				n -= headerSize
+				if n < 0 {
+					n = 0
+				}
+				log.Printf("heartbeat...%v\n", err)
 			} else {
 				ehdr.SetEncryptedHeader(request.frame.cmd, request.frame.sid, uint16(len(request.frame.data)))
 				ehdr.Mask()
