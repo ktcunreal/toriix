@@ -361,6 +361,7 @@ func (s *Session) recvLoop() {
 
 			switch ehdr.CMD() {
 			case cmdNOP:
+				log.Println("Heartbeat received.")
 			case cmdSYN:
 				s.streamLock.Lock()
 				if _, ok := s.streams[sid]; !ok {
