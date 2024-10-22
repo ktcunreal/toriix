@@ -5,6 +5,7 @@ import (
 	"errors"
 	"golang.org/x/crypto/nacl/secretbox"
 	"io"
+	"github.com/mroth/jitter"
 	"log"
 	"net"	
 	"sync"
@@ -439,7 +440,8 @@ func (s *Session) recvLoop() {
 }
 
 func (s *Session) keepalive() {
-	tickerPing := time.NewTicker(s.config.KeepAliveInterval)
+	// tickerPing := time.NewTicker(s.config.KeepAliveInterval)
+	tickerPing := jitter.NewTicker(time.Second * 20, 0.35)
 	tickerTimeout := time.NewTicker(s.config.KeepAliveTimeout)
 	defer tickerPing.Stop()
 	defer tickerTimeout.Stop()
@@ -555,7 +557,7 @@ func (s *Session) sendLoop() {
 				if n < 0 {
 					n = 0
 				}
-				log.Printf("heartbeat...%v\n", err)
+				log.Println("Heartbeat")
 			} else {
 				ehdr.SetEncryptedHeader(request.frame.cmd, request.frame.sid, uint16(len(request.frame.data)))
 				ehdr.Mask()

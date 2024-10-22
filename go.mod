@@ -9,5 +9,6 @@ require (
 )
 
 require (
+	github.com/mroth/jitter v0.1.1 // indirect
 	golang.org/x/sys v0.17.0 // indirect
 )
