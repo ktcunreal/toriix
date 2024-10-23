@@ -126,7 +126,7 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool, key string
 	go s.shaperLoop()
 	go s.recvLoop()
 	go s.sendLoop()
-	if !config.KeepAliveDisabled && s.isClient {
+	if !config.KeepAliveDisabled && client {
 	 	go s.keepalive()
 	}
 	return s
@@ -336,7 +336,9 @@ func (s *Session) recvLoop() {
 	ehdr := NewEncryptedHeader(s.keyring)
 
 	for {
+		log.Printf("dbg msg: atomic.LoadInt32(&s.bucket): %v s.IsClosed():%v\n", atomic.LoadInt32(&s.bucket),s.IsClosed() )
 		for atomic.LoadInt32(&s.bucket) <= 0 && !s.IsClosed() {
+			log.Printf("blocking......")
 			select {
 			case <-s.bucketNotify:
 			case <-s.die:
@@ -346,6 +348,8 @@ func (s *Session) recvLoop() {
 
 		// read header first
 		if _, err := io.ReadFull(s.conn, ehdr.eb[:]); err == nil {
+			atomic.StoreInt32(&s.dataReady, 1)
+
 			ehdr.Mask()
 
 			// Check integrity
@@ -353,8 +357,6 @@ func (s *Session) recvLoop() {
 				s.notifyReadError(ErrInvalidHeader)
 				return
 			}
-
-			atomic.StoreInt32(&s.dataReady, 1)
 
 			// Get sid
 			sid := ehdr.StreamID()
