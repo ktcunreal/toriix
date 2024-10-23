@@ -92,7 +92,7 @@ type Session struct {
 	writes    chan writeRequest
 
 	isClient                               bool
-	UnlockKA                               bool
+	// UnlockKA                               bool
 	ServerSN, ServerRN, ClientSN, ClientRN [24]byte
 	NaclKey                                [32]byte
 	keyring                                *Keyring
@@ -126,7 +126,7 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool, key string
 	go s.shaperLoop()
 	go s.recvLoop()
 	go s.sendLoop()
-	if !config.KeepAliveDisabled {
+	if !config.KeepAliveDisabled && s.isClient {
 	 	go s.keepalive()
 	}
 	return s
@@ -394,7 +394,7 @@ func (s *Session) recvLoop() {
 								break
 							}
 							increment(&s.ClientRN)
-							s.UnlockKA = true
+							// s.UnlockKA = true
 						} else {
 							plain, ok = secretbox.Open(nil, ebuf[:], &s.ServerRN, &s.NaclKey)
 							if !ok {
@@ -402,7 +402,7 @@ func (s *Session) recvLoop() {
 								break
 							}
 							increment(&s.ServerRN)
-							s.UnlockKA = true
+							// s.UnlockKA = true
 						}
 
 						s.streamLock.Lock()
@@ -449,10 +449,10 @@ func (s *Session) keepalive() {
 	for {
 		select {
 		case <-tickerPing.C:
-			if s.UnlockKA {
+			// if s.UnlockKA {
 				s.writeFrameInternal(newFrame(byte(s.config.Version), cmdNOP, 0), tickerPing.C, CLSCTRL)
 				s.notifyBucket() // force a signal to the recvLoop
-			}
+			// }
 		case <-tickerTimeout.C:
 			if !atomic.CompareAndSwapInt32(&s.dataReady, 1, 0) {
 				// recvLoop may block while bucket is 0, in this case,
