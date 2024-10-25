@@ -6,7 +6,7 @@ import (
 	"golang.org/x/crypto/nacl/secretbox"
 	"io"
 	"github.com/mroth/jitter"
-	"log"
+	// "log"
 	"net"	
 	"sync"
 	"sync/atomic"
@@ -92,7 +92,7 @@ type Session struct {
 	writes    chan writeRequest
 
 	isClient                               bool
-	// UnlockKA                               bool
+	UnlockKA                               bool
 	ServerSN, ServerRN, ClientSN, ClientRN [24]byte
 	NaclKey                                [32]byte
 	keyring                                *Keyring
@@ -126,7 +126,7 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool, key string
 	go s.shaperLoop()
 	go s.recvLoop()
 	go s.sendLoop()
-	if !config.KeepAliveDisabled && client {
+	if !config.KeepAliveDisabled {
 	 	go s.keepalive()
 	}
 	return s
@@ -336,9 +336,8 @@ func (s *Session) recvLoop() {
 	ehdr := NewEncryptedHeader(s.keyring)
 
 	for {
-		log.Printf("dbg msg: atomic.LoadInt32(&s.bucket): %v s.IsClosed():%v\n", atomic.LoadInt32(&s.bucket),s.IsClosed() )
+		// log.Printf("dbg msg: atomic.LoadInt32(&s.bucket): %v s.IsClosed():%v\n", atomic.LoadInt32(&s.bucket),s.IsClosed() )
 		for atomic.LoadInt32(&s.bucket) <= 0 && !s.IsClosed() {
-			log.Printf("blocking......")
 			select {
 			case <-s.bucketNotify:
 			case <-s.die:
@@ -363,7 +362,6 @@ func (s *Session) recvLoop() {
 
 			switch ehdr.CMD() {
 			case cmdNOP:
-				log.Println("Heartbeat received.")
 			case cmdSYN:
 				s.streamLock.Lock()
 				if _, ok := s.streams[sid]; !ok {
@@ -396,7 +394,7 @@ func (s *Session) recvLoop() {
 								break
 							}
 							increment(&s.ClientRN)
-							// s.UnlockKA = true
+							s.UnlockKA = true
 						} else {
 							plain, ok = secretbox.Open(nil, ebuf[:], &s.ServerRN, &s.NaclKey)
 							if !ok {
@@ -404,13 +402,13 @@ func (s *Session) recvLoop() {
 								break
 							}
 							increment(&s.ServerRN)
-							// s.UnlockKA = true
+							s.UnlockKA = true
 						}
 
 						s.streamLock.Lock()
 						if stream, ok := s.streams[sid]; ok {
 							stream.pushBytes(plain)
-							atomic.AddInt32(&s.bucket, -int32(written))
+							atomic.AddInt32(&s.bucket, -int32(written-16))
 							stream.notifyReadEvent()
 						}
 						s.streamLock.Unlock()
@@ -451,10 +449,10 @@ func (s *Session) keepalive() {
 	for {
 		select {
 		case <-tickerPing.C:
-			// if s.UnlockKA {
+			if s.UnlockKA {
 				s.writeFrameInternal(newFrame(byte(s.config.Version), cmdNOP, 0), tickerPing.C, CLSCTRL)
 				s.notifyBucket() // force a signal to the recvLoop
-			// }
+			}
 		case <-tickerTimeout.C:
 			if !atomic.CompareAndSwapInt32(&s.dataReady, 1, 0) {
 				// recvLoop may block while bucket is 0, in this case,
@@ -560,7 +558,6 @@ func (s *Session) sendLoop() {
 				if n < 0 {
 					n = 0
 				}
-				log.Println("Heartbeat")
 			} else {
 				ehdr.SetEncryptedHeader(request.frame.cmd, request.frame.sid, uint16(len(request.frame.data)))
 				ehdr.Mask()
